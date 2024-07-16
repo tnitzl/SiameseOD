@@ -59,7 +59,10 @@ class Simple_Dataset(Dataset):
 class Random_Dataset(Dataset):
     def __init__(self, x: np.ndarray, y: np.ndarray, percent_labeld: float, len_dataset: int):
 
+        #(0.25,0.25) (0.75, 0.75)
+
         # Noramlizie Data
+        #Übergeben zwischen 0.25, 0.75
         minmax_scaler = MinMaxScaler()
         minmax_scaler.fit(x)
         x = minmax_scaler.transform(x)
@@ -93,9 +96,10 @@ class Random_Dataset(Dataset):
         return self.len_dataset
     
     def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        zahlen = [1, 2, 3]
+        zahlen = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         zufallszahl = random.choice(zahlen)
-        if zufallszahl == 1:
+        # choice anomaly anomaly
+        if zufallszahl < 2:
             first_random_index = random.randint(0, len(self.labeld_anoamly) - 1)
             second_random_index = random.randint(0, len(self.labeld_anoamly) - 1)
             while second_random_index == first_random_index:
@@ -104,7 +108,8 @@ class Random_Dataset(Dataset):
             out2 = torch.tensor(self.labeld_anoamly[second_random_index], dtype = torch.float32)
             lable = torch.tensor(1, dtype = torch.float32)
             return out1, out2, lable
-        elif zufallszahl == 2:
+        # labeld normal - normal
+        elif zufallszahl < 4:
             first_random_index = random.randint(0, len(self.labeld_normal) - 1)
             second_random_index = random.randint(0, len(self.labeld_normal) - 1)
             while second_random_index == first_random_index:
@@ -113,6 +118,7 @@ class Random_Dataset(Dataset):
             out2 = torch.tensor(self.labeld_normal[second_random_index], dtype = torch.float32)
             lable = torch.tensor(1, dtype = torch.float32)
             return out1, out2, lable
+        #labeld normal - anomaly
         else:
             first_random_index = random.randint(0, len(self.labeld_anoamly) - 1)
             second_random_index = random.randint(0, len(self.labeld_normal) - 1)

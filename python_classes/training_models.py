@@ -242,7 +242,7 @@ def bagging_ensamble_training(file: str,
                   epochs_siamese: int = 20, 
                   epochs_classifier: int = 40, 
                   print_embeddeds: bool = False, 
-                  print_learning: int =False,
+                  print_learning: bool =False,
                   len_dataset: int = 200000,
                   verbose: int = 0,
                   number_learner: int = 5,
@@ -279,6 +279,7 @@ def bagging_ensamble_training(file: str,
     loader_unlabeld_data = DataLoader(
         dataset = unlabeld_dataset,
         batch_size = 256,
+        shuffle = True,
     )
 
     loader_label_data = DataLoader(
@@ -289,6 +290,7 @@ def bagging_ensamble_training(file: str,
         print(f'Die länge des ungelabendeten Datensatzen ist: {len(unlabeld_dataset)}')
         print(f'Die länge des ungelabendeten Datenloader ist: {len(loader_unlabeld_data)}')
 
+    # Initialize alle learner
     list_siamese_learner = []
     list_classfier_learner = []
     list_optimizer_siames = []
@@ -306,9 +308,20 @@ def bagging_ensamble_training(file: str,
         list_optimizer_classifier.append(optimizer_classifier)
 
     contrastiv_loss: ContrastiveLoss = ContrastiveLoss(margin = contrastiv_margin)
-    mse_loss =  F.binary_cross_entropy
+    #mse_loss =  F.binary_cross_entropy
+    
+    #TODO weighted loss
+    #mse_loss = F.mse_loss
+    print(type(y))
+    class_counts = torch.bincount(torch.tensor(y))
+    print(class_counts)
+    class_weights = 1. / class_counts.float()
+    sample_weights = class_weights[y]
+    weighted_sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights))
 
+    mse_loss = torch.nn.CrossEntropyLoss(weight=class_weights)
 
+    # train all siamese learner for embedded 
     counter_siamese = 0
     for siamese, optimizer in zip(list_siamese_learner, list_optimizer_siames):
         counter_siamese += 1
@@ -333,11 +346,46 @@ def bagging_ensamble_training(file: str,
         print(f"---------Finished Training {counter_siamese} Siamese Network-------------")
         if print_learning:
             plt.plot(list_epoch_loss)
-            plt.title('Loss Curve Siamese')
+            plt.title('Loss Curve Siamese model {counter_siamese}')
             plt.show()
 
+    # print embeddings for alle siamese networks
+    if print_embeddeds:
+        print('Embeddeds sollen geprintet werden!')
+        for i, siamese in enumerate(list_siamese_learner):
+            embed_data = []
+            embed_label = []
+            for inp, label in loader_label_data:
+                inp = inp.to(device)
+                emb, _ = siamese(inp, inp)
+                emb = emb.to("cpu").detach().numpy()
+                label = label.to("cpu").detach().numpy()
+                embed_data.extend(emb)
+                embed_label.extend(label)
+       
+            # die Länge der gelabelten Daten muss >30 sein, sonst geht der plot fpr tsne nicht
+            if len(embed_data) > 30:
+                tnse = TSNE(n_components=2, random_state=42)
+    
+                gelabeld = np.array(embed_data)
+                lables = np.array(embed_label)
+
+                features_2d = tnse.fit_transform(gelabeld)
+
+                plt.figure(figsize=(10,7))
+                scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=lables, cmap='viridis', alpha=0.6)
+                plt.colorbar(scatter)
+                plt.title(f't-SNE Visualisierung Model {i}')
+                plt.xlabel('t-SNE Dimension 1')
+                plt.ylabel('t-SNE Dimension 2')
+                plt.show()
+
+    # train all classifier
+    # ensembles for classifier net ist seperat from siamese ensembles
     counter_classifier = 0
     for siamese, classifier, optimizer in zip(list_siamese_learner, list_classfier_learner, list_optimizer_classifier):
+
+        # create embedding for training classifier
         embeded_labeld_data = []
         embeded_labled_label = []
         for inp, label in loader_label_data:
@@ -360,15 +408,16 @@ def bagging_ensamble_training(file: str,
         loss_iteration = []
 
         counter_classifier += 1
+        classifier = classifier.to("cpu")
         for epoch in range(epochs_classifier):
             print(f'----------------Start trainign Epoche {epoch}----------------')
             epoch_loss: float = 0.0
             for embed, lab in loader_label_embedded:
-                lab = lab.unsqueeze(1)
-                embed, lab = embed.to(device), lab.to(device)
+                #lab = lab.unsqueeze(1)
+                embed, lab = embed.to("cpu"), lab.to("cpu")
 
                 out = classifier(embed)
-
+                lab = lab.long()
                 loss = mse_loss(out, lab)
                 loss.backward()
                 optimizer.step()
@@ -379,10 +428,46 @@ def bagging_ensamble_training(file: str,
 
             list_epoch_loss.append(epoch_loss/len(loader_label_embedded))
             print(f'Epoche: {epoch} Average Loss: {epoch_loss/len(loader_label_embedded)}')
+        classifier = classifier.to(device)
+        if print_learning:
+            plt.plot(list_epoch_loss)
+            plt.title('Loss Curve Siamese model {counter_classifier}')
+            plt.show()
     
         print(f"------------------Finished Training Classifier: {counter_classifier}----------------------")
 
+    # print embeddings unlabeld data for alle siamese networks
+    if print_embeddeds:
+        print('Embeddeds der ungelabeldten daten sollen geprintet werden!')
+        for i, siamese in enumerate(list_siamese_learner):
+            embed_data = []
+            embed_label = []
+            for inp, label in loader_unlabeld_data:
+                inp = inp.to(device)
+                emb, _ = siamese(inp, inp)
+                emb = emb.to("cpu").detach().numpy()
+                label = label.to("cpu").detach().numpy()
+                embed_data.extend(emb)
+                embed_label.extend(label)
+       
+            # die Länge der gelabelten Daten muss >30 sein, sonst geht der plot fpr tsne nicht
+            tnse = TSNE(n_components=2, random_state=42)
+    
+            gelabeld = np.array(embed_data)
+            lables = np.array(embed_label)
+
+            features_2d = tnse.fit_transform(gelabeld)
+
+            plt.figure(figsize=(10,7))
+            scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=lables, cmap='viridis', alpha=0.6)
+            plt.colorbar(scatter)
+            plt.title(f't-SNE Visualisierung Model {i}')
+            plt.xlabel('t-SNE Dimension 1')
+            plt.ylabel('t-SNE Dimension 2')
+            plt.show()
    
+    # prediction for classifier and siamese
+    y_all = []
     y_pred = []
     y_true = []
     for inp, lable in loader_unlabeld_data:
@@ -393,18 +478,54 @@ def bagging_ensamble_training(file: str,
             out = classifier(out_siamese)
             out = out.to("cpu").detach().numpy()
             y_outs.append(out)
-
-        y_out = analyze_lists(y_outs)
+        y_all.append(y_outs)
+        y_out = analyze_predictions_two_outputs(y_outs)
         assert(len(y_out) == len(lable))
         y_pred.extend(y_out)
-        y_true.extend(lable)
+        y_true.extend(lable.to("cpu").detach().numpy())
 
+    print(f'Die länge der ungelabelten Daten ist: {len(unlabeld_dataset)}')
+    print(f'Die vorhergesgten labels: {y_pred}')
+    print(f'Die tatsächlichen Labels: {y_true}')
     roc = roc_auc_score(y_true, y_pred, multi_class='ovr')
     pr = average_precision_score(y_true, y_pred)
 
     print(f'ROC-AUC: {roc}')
     print(f'ROC_PR: {pr}')
-    return roc, pr
+    return roc, pr, y_all, y_pred, y_true
+
+def analyze_predictions_two_outputs(predictions):
+    # Ermitteln der maximalen Länge der Listen
+    max_length = max(len(lst) for lst in predictions)
+    
+    # Ergebnisliste initialisieren
+    result = []
+    
+    # Iteriere über die Positionen
+    for i in range(max_length):
+        class_counts = {0: 0, 1: 0}
+        
+        # Überprüfen der Werte an der aktuellen Position in jeder Liste
+        for lst in predictions:
+            if i < len(lst):  # Sicherstellen, dass die Liste lang genug ist
+                # Vorhersagen für Klasse 0 und Klasse 1 extrahieren
+                pred_class = torch.argmax(torch.tensor(lst[i])).item()
+                
+                # Zähle die Vorhersage
+                if pred_class in class_counts:
+                    class_counts[pred_class] += 1
+        
+        # Finde das Label mit den meisten Vorhersagen
+        majority_label = max(class_counts, key=class_counts.get)
+        majority_count = class_counts[majority_label]
+
+        # Wenn keine klare Mehrheit besteht, np.nan zurückgeben
+        if majority_count >= 3:
+            result.append(float(majority_label))
+        else:
+            result.append(np.nan)
+    
+    return result
 
 def analyze_lists(list_of_lists):
     # Ermitteln der maximalen Länge der Listen
@@ -428,9 +549,9 @@ def analyze_lists(list_of_lists):
         
         # Ergebnis abhängig von den Zählungen
         if count_over >= 3:
-            result.append(1)
+            result.append(1.0)
         elif count_under >= 3:
-            result.append(0)
+            result.append(0.0)
         else:
             result.append(np.nan)  # Keine klare Mehrheit
     

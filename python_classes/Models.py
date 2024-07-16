@@ -34,12 +34,12 @@ class Classifier_Network(nn.Module):
         #self.fc2 = nn.Linear(10, 1)
         ## new seetings
         self.fc1 = nn.Linear(50, 10)
-        self.fc2 = nn.Linear(10, 1)
+        self.fc2 = nn.Linear(10, 2)
 
     def forward(self, x) -> torch.Tensor:
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
-        x = F.sigmoid(x)
+        #x = F.sigmoid(x)
         return x
     
 class Stacked_Classifier(nn.Module):
@@ -58,7 +58,7 @@ class Stacked_Classifier(nn.Module):
 #https://medium.com/@maksym.bekuzarov/losses-explained-contrastive-loss-f8f57fe32246
 
 class ContrastiveLoss(nn.Module):
- 
+    #weighted loss
     def __init__(self, margin=20.0, verbose=0):
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
